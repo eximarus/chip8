@@ -58,10 +58,6 @@ struct graphics* graphics_init(void) {
 
 void graphics_request_draw(struct graphics* graphics) { graphics->draw_flag = true; }
 
-int32_t point_to_addr(struct point point, int32_t width) {
-    return point.y * width + point.x;
-}
-
 void graphics_draw(struct graphics* graphics) {
     if (!graphics->draw_flag) {
         return;
@@ -70,11 +66,15 @@ void graphics_draw(struct graphics* graphics) {
     SDL_SetRenderDrawColor(graphics->renderer, 0, 0, 0, 0xFF);
     SDL_RenderClear(graphics->renderer);
 
-    for (int y = 0; y < SCREEN_HEIGHT; y++) {
-        for (int x = 0; x < SCREEN_WIDTH; x++) {
-            struct point point = {.x = x, .y = y};
-            if (graphics->vram[point_to_addr(point, SCREEN_WIDTH)]) {
-                graphics_draw_pixel(graphics, point);
+    for (int32_t y = 0; y < SCREEN_HEIGHT; y++) {
+        for (int32_t x = 0; x < SCREEN_WIDTH; x++) {
+            int32_t addr = y * SCREEN_WIDTH + x;
+            if (graphics->vram[addr]) {
+                SDL_SetRenderDrawColor(graphics->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+                SDL_Rect block = {x * display_scale, y * display_scale,
+                                  display_scale, display_scale};
+                SDL_RenderDrawRect(graphics->renderer, &block);
+                SDL_RenderFillRect(graphics->renderer, &block);
             }
         }
     }
@@ -91,12 +91,4 @@ void graphics_terminate(struct graphics* graphics) {
     SDL_DestroyWindow(graphics->window);
     SDL_Quit();
     free(graphics);
-}
-
-void graphics_draw_pixel(struct graphics* graphics, struct point point) {
-    SDL_SetRenderDrawColor(graphics->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-    SDL_Rect block = {point.x * display_scale, point.y * display_scale,
-                      display_scale, display_scale};
-    SDL_RenderDrawRect(graphics->renderer, &block);
-    SDL_RenderFillRect(graphics->renderer, &block);
 }
