@@ -1,0 +1,24 @@
+---
+WarningsAsErrors: '*'
+HeaderFilterRegex: ''
+FormatStyle: none
+
+Checks: >
+  *,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -altera-id-dependent-backward-branch,
+  -altera-unroll-loops,
+  -readability-identifier-length,
+  -cppcoreguidelines-pro-type-union-access,
+  -misc-non-private-member-variables-in-classes,
+  -fuchsia-*,
+  -google-*,
+  -zircon-*,
+  -abseil-*,
+  -modernize-use-trailing-return-type,
+  -llvm-*,
+  -llvmlibc-*,
+
+CheckOptions:
+  - { key: misc-non-private-member-variables-in-classes, value: IgnoreClassesWithAllMemberVariablesBeingPublic }
