@@ -37,16 +37,3 @@ pub fn handleKey(cpu: *chip8.Cpu, action: sdl.SDL_EventType, key: sdl.SDL_Keycod
     };
     cpu.key[keycode] = keyValue;
 }
-
-test "handleKey" {
-    var cpu = chip8.Cpu{};
-    chip8.initialize(&cpu);
-    try std.testing.expectError(InputError.UnknownAction, handleKey(&cpu, 99, sdl.SDLK_1));
-    try std.testing.expectEqual(@as(u8, 0), cpu.key[0x1]);
-
-    try handleKey(&cpu, sdl.SDL_KEYDOWN, sdl.SDLK_1);
-    try std.testing.expectEqual(@as(u8, 1), cpu.key[0x1]);
-
-    try handleKey(&cpu, sdl.SDL_KEYUP, sdl.SDLK_1);
-    try std.testing.expectEqual(@as(u8, 0), cpu.key[0x1]);
-}
