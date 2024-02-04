@@ -3,18 +3,23 @@
 
 static const int32_t display_scale = 10;
 
-struct graphics* graphics_init(void) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
+struct graphics* graphics_create(void) {
+    struct graphics* graphics = malloc(sizeof(struct graphics));
+    if (!graphics) {
         return NULL;
     }
+    if (graphics_init(graphics) != 0) {
+        free(graphics);
+        return NULL;
+    }
+    return graphics;
+}
 
+int32_t graphics_init(struct graphics* graphics) {
     SDL_Window* window =
         SDL_CreateWindow("chip8", // window title
-                                  // NOLINTBEGIN hicpp-signed-bitwise
                          SDL_WINDOWPOS_UNDEFINED, // initial x position
                          SDL_WINDOWPOS_UNDEFINED, // initial y position
-                         // NOLINTEND
                          SCREEN_WIDTH * display_scale,  // width, in pixels
                          SCREEN_HEIGHT * display_scale, // height, in pixels
                          SDL_WINDOW_SHOWN               // flags
@@ -22,8 +27,7 @@ struct graphics* graphics_init(void) {
 
     if (!window) {
         printf("SDL could not create window! SDL_Error: %s\n", SDL_GetError());
-        SDL_Quit();
-        return NULL;
+        return 1;
     }
 
     SDL_Renderer* renderer =
@@ -33,16 +37,7 @@ struct graphics* graphics_init(void) {
                SDL_GetError());
 
         SDL_DestroyWindow(window);
-        SDL_Quit();
-        return NULL;
-    }
-
-    struct graphics* graphics = malloc(sizeof(struct graphics));
-    if (!graphics) {
-        SDL_DestroyWindow(window);
-        SDL_DestroyRenderer(renderer);
-        SDL_Quit();
-        return NULL;
+        return 1;
     }
 
     *graphics = (struct graphics){
@@ -52,11 +47,9 @@ struct graphics* graphics_init(void) {
         .draw_flag = false,
     };
 
-    graphics_request_draw(graphics);
-    return graphics;
+    graphics->draw_flag = true;
+    return 0;
 }
-
-void graphics_request_draw(struct graphics* graphics) { graphics->draw_flag = true; }
 
 void graphics_draw(struct graphics* graphics) {
     if (!graphics->draw_flag) {
@@ -83,12 +76,11 @@ void graphics_draw(struct graphics* graphics) {
     graphics->draw_flag = false;
 }
 
-void graphics_terminate(struct graphics* graphics) {
+void graphics_destroy(struct graphics* graphics) {
     if (!graphics) {
         return;
     }
     SDL_DestroyRenderer(graphics->renderer);
     SDL_DestroyWindow(graphics->window);
-    SDL_Quit();
     free(graphics);
 }

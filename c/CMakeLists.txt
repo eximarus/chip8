@@ -23,9 +23,7 @@ include_directories(include)
 add_executable(
     ${PROJECT_NAME}
     src/main.c
-    src/chip8.c
     src/cpu.c
-    src/input.c
     src/graphics.c
     src/audio.c
 )

@@ -1,5 +1,206 @@
+#include <time.h>
 #include "cpu.h"
 #include "instr.h"
+
+static const uint8_t chip8_fontset[80] = {
+    0xF0U, 0x90U, 0x90U, 0x90U, 0xF0U, // 0
+    0x20U, 0x60U, 0x20U, 0x20U, 0x70U, // 1
+    0xF0U, 0x10U, 0xF0U, 0x80U, 0xF0U, // 2
+    0xF0U, 0x10U, 0xF0U, 0x10U, 0xF0U, // 3
+    0x90U, 0x90U, 0xF0U, 0x10U, 0x10U, // 4
+    0xF0U, 0x80U, 0xF0U, 0x10U, 0xF0U, // 5
+    0xF0U, 0x80U, 0xF0U, 0x90U, 0xF0U, // 6
+    0xF0U, 0x10U, 0x20U, 0x40U, 0x40U, // 7
+    0xF0U, 0x90U, 0xF0U, 0x90U, 0xF0U, // 8
+    0xF0U, 0x90U, 0xF0U, 0x10U, 0xF0U, // 9
+    0xF0U, 0x90U, 0xF0U, 0x90U, 0x90U, // A
+    0xE0U, 0x90U, 0xE0U, 0x90U, 0xE0U, // B
+    0xF0U, 0x80U, 0x80U, 0x80U, 0xF0U, // C
+    0xE0U, 0x90U, 0x90U, 0x90U, 0xE0U, // D
+    0xF0U, 0x80U, 0xF0U, 0x80U, 0xF0U, // E
+    0xF0U, 0x80U, 0xF0U, 0x80U, 0x80U  // F
+};
+
+struct cpu* cpu_create(void) {
+    struct cpu* cpu = malloc(sizeof(struct cpu));
+    if (!cpu) {
+        return NULL;
+    }
+    if (cpu_init(cpu) != 0) {
+        free(cpu);
+        return NULL;
+    }
+    return cpu;
+}
+
+int32_t cpu_init(struct cpu* cpu) {
+    if (!cpu) {
+        return 1;
+    }
+
+    struct graphics* graphics = graphics_create();
+    if (!graphics) {
+        return 1;
+    }
+
+    struct audio* audio = audio_create();
+    if (!audio) {
+        graphics_destroy(graphics);
+        return 1;
+    }
+
+    *cpu = (struct cpu){
+        .pc = 0x200,
+        .i = 0,
+        .sp = 0,
+        .v = {0},
+        .dt = 0,
+        .st = 0,
+        .ram = {0},
+        .stack = {0},
+        .key = {0},
+        .graphics = graphics,
+        .audio = audio,
+    };
+
+    const size_t fontset_size =
+        sizeof(chip8_fontset) / sizeof(chip8_fontset[0]);
+    for (size_t i = 0; i < fontset_size; ++i) {
+        cpu->ram[i] = chip8_fontset[i];
+    }
+
+    srandom(time(NULL));
+    return 0;
+}
+
+void cpu_destroy(struct cpu* cpu) {
+    if (!cpu) {
+        return;
+    }
+    audio_destroy(cpu->audio);
+    graphics_destroy(cpu->graphics);
+    free(cpu);
+}
+
+static int64_t get_file_size(FILE* file) {
+    const int32_t result = fseek(file, 0, SEEK_END);
+    if (result != 0) {
+        return -1;
+    }
+
+    long file_size = ftell(file);
+    rewind(file);
+    return file_size;
+}
+
+bool cpu_load_application(struct cpu* cpu, const char* filename) {
+    FILE* file = fopen(filename, "rbe");
+    if (file == NULL) {
+        fputs("File error", stderr);
+        return false;
+    }
+
+    int64_t file_size = get_file_size(file);
+    if (file_size < 0) {
+        printf("Error: failed to get ROM size");
+        fclose(file);
+        return false;
+    }
+
+    if (file_size > 4096 - 512) {
+        printf("Error: ROM too big for memory");
+        fclose(file);
+        return false;
+    }
+
+    uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t) * file_size);
+    if (buffer == NULL) {
+        fputs("Memory error", stderr);
+        fclose(file);
+        return false;
+    }
+
+    size_t len = fread(buffer, 1, file_size, file);
+    if (len != (uint64_t)file_size) {
+        fputs("Reading error", stderr);
+        fclose(file);
+        free(buffer);
+        return false;
+    }
+
+    memmove(&cpu->ram[512], buffer, file_size * sizeof(uint8_t));
+
+    fclose(file);
+    free(buffer);
+    return true;
+}
+
+void cpu_handle_sdl_key_event(struct cpu* cpu, SDL_Event event) {
+    bool key_value = false;
+    if (event.type == SDL_KEYDOWN) {
+        key_value = true;
+    } else if (event.type != SDL_KEYUP) {
+        printf("Unknown input event: %d", event.type);
+        return;
+    }
+
+    uint8_t keycode = 0;
+    switch (event.key.keysym.sym) {
+    case SDLK_1:
+        keycode = 0x1;
+        break;
+    case SDLK_2:
+        keycode = 0x2;
+        break;
+    case SDLK_3:
+        keycode = 0x3;
+        break;
+    case SDLK_4:
+        keycode = 0xC;
+        break;
+    case SDLK_q:
+        keycode = 0x4;
+        break;
+    case SDLK_w:
+        keycode = 0x5;
+        break;
+    case SDLK_e:
+        keycode = 0x6;
+        break;
+    case SDLK_r:
+        keycode = 0xD;
+        break;
+    case SDLK_a:
+        keycode = 0x7;
+        break;
+    case SDLK_s:
+        keycode = 0x8;
+        break;
+    case SDLK_d:
+        keycode = 0x9;
+        break;
+    case SDLK_f:
+        keycode = 0xE;
+        break;
+    case SDLK_z:
+        keycode = 0xA;
+        break;
+    case SDLK_x:
+        keycode = 0x0;
+        break;
+    case SDLK_c:
+        keycode = 0xB;
+        break;
+    case SDLK_v:
+        keycode = 0xF;
+        break;
+    default:
+        return;
+    }
+    cpu->key[keycode] = key_value;
+}
+
+// ops
 
 // 0NNN and 2NNN
 static void op_call_nnn(struct cpu* cpu, union instr instr) {
@@ -13,7 +214,7 @@ static void op_cls(struct cpu* cpu) {
     for (int32_t i = 0; i < 2048; ++i) {
         cpu->graphics->vram[i] = 0;
     }
-    graphics_request_draw(cpu->graphics);
+    cpu->graphics->draw_flag = true;
     cpu->pc += 2;
 }
 
@@ -203,7 +404,7 @@ static void op_drw_vx_vy_n(struct cpu* cpu, union instr instr) {
                 } else {
                     cpu->graphics->vram[addr] = 1;
                 }
-                graphics_request_draw(cpu->graphics);
+                cpu->graphics->draw_flag = true;
             }
             sprite <<= 1U;
         }
@@ -214,7 +415,7 @@ static void op_drw_vx_vy_n(struct cpu* cpu, union instr instr) {
 
 // EX9E
 static void op_skp_vx(struct cpu* cpu, union instr instr) {
-    if (input_get_key(cpu->input, cpu->v[instr.x])) {
+    if (cpu->key[cpu->v[instr.x]]) {
         cpu->pc += 4;
     } else {
         cpu->pc += 2;
@@ -223,7 +424,7 @@ static void op_skp_vx(struct cpu* cpu, union instr instr) {
 
 // EXA1
 static void op_sknp_vx(struct cpu* cpu, union instr instr) {
-    if (!input_get_key(cpu->input, cpu->v[instr.x])) {
+    if (!cpu->key[cpu->v[instr.x]]) {
         cpu->pc += 4;
     } else {
         cpu->pc += 2;
@@ -240,7 +441,7 @@ static void op_ld_vx_dt(struct cpu* cpu, union instr instr) {
 static void op_ld_vx_key(struct cpu* cpu, union instr instr) {
     bool key_press = false;
     for (int32_t i = 0; i < 16; i++) {
-        if (input_get_key(cpu->input, i)) {
+        if (cpu->key[i]) {
             cpu->v[instr.x] = i;
             key_press = true;
         }
@@ -308,7 +509,6 @@ static void op_ld_vx_i(struct cpu* cpu, union instr instr) {
 }
 
 void cpu_update_timers(struct cpu* cpu) {
-    // TODO ensure 60hz
     if (cpu->dt > 0) {
         cpu->dt--;
     }
@@ -468,7 +668,7 @@ static void decode_opcode(struct cpu* cpu, uint16_t opcode) {
     // printf("executed opcode: 0x%X\n", opcode);
 }
 
-static uint16_t fetch_opcode(struct cpu* cpu) {
+static inline uint16_t fetch_opcode(struct cpu* cpu) {
     return (uint32_t)cpu->ram[cpu->pc] << 8U |
            cpu->ram[cpu->pc + 1];
 }
@@ -477,4 +677,3 @@ void cpu_emulate_cycle(struct cpu* cpu) {
     uint16_t opcode = fetch_opcode(cpu);
     decode_opcode(cpu, opcode);
 }
-

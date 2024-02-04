@@ -1,9 +1,25 @@
 #include "audio.h"
 #include <math.h>
 
-struct audio* audio_init(void) {
+struct audio* audio_create(void) {
+    struct audio* audio = malloc(sizeof(struct audio));
+    if (!audio) {
+        return NULL;
+    }
+    if (audio_init(audio) != 0) {
+        free(audio);
+        return NULL;
+    }
+    return audio;
+}
+
+int32_t audio_init(struct audio* audio) {
+    if (!audio) {
+        return 1;
+    }
+
     SDL_AudioSpec spec = {
-        .freq = (int32_t)audio_frequency,
+        .freq = (int32_t)AUDIO_FREQUENCY,
         .format = AUDIO_U8,
         .channels = 1,
         .samples = 2048,
@@ -12,20 +28,14 @@ struct audio* audio_init(void) {
     };
 
     SDL_AudioDeviceID device =
-        // NOLINTNEXTLINE hicpp-signed-bitwise
         SDL_OpenAudioDevice(NULL, 0, &spec, NULL, SDL_AUDIO_ALLOW_ANY_CHANGE);
 
     if (!device) {
         printf("SDL could not get audio device! SDL_Error: %s\n",
                SDL_GetError());
-        return NULL;
+        return 1;
     }
 
-    struct audio* audio = malloc(sizeof(struct audio));
-    if (!audio) {
-        SDL_CloseAudioDevice(device);
-        return NULL;
-    }
 
     SDL_PauseAudioDevice(device, 0);
     *audio = (struct audio){
@@ -34,7 +44,7 @@ struct audio* audio_init(void) {
         .wave_position = 0,
         .wave_increment = (audio_tone * (2.0 * M_PI)) / audio_frequency,
     };
-    return audio;
+    return 0;
 }
 
 void audio_beep(struct audio* audio, int len) {
@@ -54,7 +64,7 @@ void audio_sine(struct audio* audio, int len) {
     }
 }
 
-void audio_terminate(struct audio* audio) {
+void audio_destroy(struct audio* audio) {
     if (!audio) {
         return;
     }

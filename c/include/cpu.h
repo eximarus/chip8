@@ -1,8 +1,10 @@
 #pragma once
+#include <stdbool.h>
+#include <stdint.h>
+#include <SDL2/SDL_events.h>
+
 #include "audio.h"
 #include "graphics.h"
-#include "input.h"
-#include <stdint.h>
 
 struct cpu {
     // registers
@@ -26,11 +28,23 @@ struct cpu {
     uint8_t ram[4096];
     uint16_t stack[16];
 
-    struct input* input;
+    bool key[16];
+
     struct graphics* graphics;
     struct audio* audio;
 } __attribute__((aligned(128)));
 
+
+struct cpu* cpu_create(void);
+
+int32_t cpu_init(struct cpu* cpu);
+
 void cpu_emulate_cycle(struct cpu* cpu);
 
 void cpu_update_timers(struct cpu* cpu);
+
+bool cpu_load_application(struct cpu* cpu, const char* filename);
+
+void cpu_handle_sdl_key_event(struct cpu* cpu, SDL_Event event);
+
+void cpu_destroy(struct cpu* cpu);

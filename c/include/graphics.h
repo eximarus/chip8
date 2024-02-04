@@ -12,7 +12,7 @@ struct graphics {
     bool draw_flag;
 } __attribute__((aligned(128)));
 
-struct graphics* graphics_init(void);
-void graphics_request_draw(struct graphics* graphics);
+struct graphics* graphics_create(void);
+int32_t graphics_init(struct graphics* graphics);
 void graphics_draw(struct graphics* graphics);
-void graphics_terminate(struct graphics* graphics);
+void graphics_destroy(struct graphics* graphics);
