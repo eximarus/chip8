@@ -19,20 +19,22 @@ pub fn main() anyerror!void {
     chip8.initialize(&cpu);
     try chip8.loadApplication(&cpu, args[1]);
 
-    try sdl.init(.{ .audio = true, .video = true });
-    errdefer sdl.quit();
+    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO | sdl.SDL_INIT_AUDIO) >= 0);
+    defer sdl.SDL_Quit();
 
-    const window = try sdl.Window.create("chip8", // window title
-        sdl.Window.pos_undefined, // initial x position
-        sdl.Window.pos_undefined, // initial y position
+    const window = sdl.SDL_CreateWindow("chip8", // window title
+        sdl.SDL_WINDOWPOS_UNDEFINED, // initial x position
+        sdl.SDL_WINDOWPOS_UNDEFINED, // initial y position
         SCREEN_WIDTH * display_scale, // width, in pixels
         SCREEN_HEIGHT * display_scale, // height, in pixels
-        .{ .shown = true } // flags
+        sdl.SDL_WINDOW_SHOWN // flags
     );
-    defer window.destroy();
+    defer sdl.SDL_DestroyWindow(window);
+    assert(window != null);
 
-    const renderer = try sdl.Renderer.create(window, -1, .{ .present_vsync = true });
-    defer renderer.destroy();
+    const renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_PRESENTVSYNC);
+    defer sdl.SDL_DestroyRenderer(renderer);
+    assert(renderer != null);
 
     var last_ticks = sdl.SDL_GetTicks();
     var last_delta: u32 = 0;
@@ -40,11 +42,11 @@ pub fn main() anyerror!void {
     var render_delta: u32 = 0;
 
     mainloop: while (true) {
-        var sdlEvent: sdl.Event = undefined;
-        while (sdl.pollEvent(&sdlEvent)) {
+        var sdlEvent: sdl.SDL_Event = undefined;
+        while (sdl.SDL_PollEvent(&sdlEvent) != 0) {
             switch (sdlEvent.type) {
-                .quit => break :mainloop,
-                .keydown, .keyup => try input.handleKey(&cpu, sdlEvent.type, sdlEvent.key.keysym.sym),
+                sdl.SDL_QUIT => break :mainloop,
+                sdl.SDL_KEYDOWN, sdl.SDL_KEYUP => try input.handleKey(&cpu, sdlEvent.type, sdlEvent.key.keysym.sym),
                 else => {},
             }
         }
@@ -61,29 +63,29 @@ pub fn main() anyerror!void {
 
         if (cpu.drawFlag) {
             while (render_delta >= (1000 / 60)) {
-                try renderer.setDrawColor(.{ 0, 0, 0, 0xFF });
-                try renderer.clear();
+                _ = sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
+                _ = sdl.SDL_RenderClear(renderer);
                 for (0..SCREEN_HEIGHT) |y| {
                     for (0..SCREEN_WIDTH) |x| {
-                        const addr = @as(i32, y) * SCREEN_WIDTH + @as(i32, x);
+                        const addr = y * @as(usize, SCREEN_WIDTH) + x;
                         if (cpu.gfx[addr] == 0) {
                             continue;
                         }
-                        try renderer.setDrawColor(.{ 0xFF, 0xFF, 0xFF, 0xFF });
-                        const block = sdl.Rect{
-                            .x = x * display_scale,
-                            .y = y * display_scale,
+                        _ = sdl.SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+                        const block = sdl.SDL_Rect{
+                            .x = @as(i32, @intCast(x)) * display_scale,
+                            .y = @as(i32, @intCast(y)) * display_scale,
                             .h = display_scale,
                             .w = display_scale,
                         };
-                        try renderer.drawRect(&block);
-                        try renderer.fillRect(&block);
+                        _ = sdl.SDL_RenderDrawRect(renderer, &block);
+                        _ = sdl.SDL_RenderFillRect(renderer, &block);
                     }
-                    renderer.present();
-
-                    render_delta -= (1000 / 60);
                 }
+
+                sdl.SDL_RenderPresent(renderer);
                 cpu.drawFlag = false;
+                render_delta -= (1000 / 60);
             }
         }
     }

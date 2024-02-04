@@ -618,7 +618,7 @@ fn drawSprite(cpu: *Cpu, operands: *Operands) void {
         var x: u4 = 0;
         while (x < width) : (x += 1) {
             const pixel = cpu.memory[cpu.i + @as(usize, @intCast(y))];
-            var start: u16 = 0x80;
+            const start: u16 = 0x80;
             if ((pixel & (start >> x)) > 0) {
                 const index = @as(usize, @intCast((opX + x) % 64 + @rem((opY + y), 32) * 64));
                 if (cpu.gfx[index] == 1) {
