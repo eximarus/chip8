@@ -1,94 +1,132 @@
 const std = @import("std");
-const input = @import("input.zig");
 const chip8 = @import("chip8.zig");
-const graphics = @import("graphics.zig");
-const SCREEN_HEIGHT = graphics.SCREEN_HEIGHT;
-const SCREEN_WIDTH = graphics.SCREEN_WIDTH;
+const c = @cImport({
+    @cInclude("SDL2/SDL.h");
+});
+
+const display_height = chip8.display_height;
+const display_width = chip8.display_width;
+
 var display_scale: i32 = 10;
-const sdl = @import("sdl.zig");
-const assert = std.debug.assert;
 
-var cpu = chip8.Cpu{};
-pub fn main() anyerror!void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
-    assert(args.len > 1);
+pub fn main() !void {
+    var buf: [512]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
 
-    chip8.initialize(&cpu);
-    try chip8.loadApplication(&cpu, args[1]);
+    var iter = try std.process.argsWithAllocator(allocator);
+    defer iter.deinit();
+    _ = iter.skip();
 
-    assert(sdl.SDL_Init(sdl.SDL_INIT_VIDEO | sdl.SDL_INIT_AUDIO) >= 0);
-    defer sdl.SDL_Quit();
+    const timestamp = @as(u64, @intCast(std.time.timestamp()));
+    var pcg = std.rand.Pcg.init(timestamp);
+    const rng = pcg.random();
 
-    const window = sdl.SDL_CreateWindow("chip8", // window title
-        sdl.SDL_WINDOWPOS_UNDEFINED, // initial x position
-        sdl.SDL_WINDOWPOS_UNDEFINED, // initial y position
-        SCREEN_WIDTH * display_scale, // width, in pixels
-        SCREEN_HEIGHT * display_scale, // height, in pixels
-        sdl.SDL_WINDOW_SHOWN // flags
-    );
-    defer sdl.SDL_DestroyWindow(window);
-    assert(window != null);
+    var cpu = chip8.Cpu.init(rng);
+    try cpu.loadRom(iter.next().?);
 
-    const renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_PRESENTVSYNC);
-    defer sdl.SDL_DestroyRenderer(renderer);
-    assert(renderer != null);
+    std.debug.assert(c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO) >= 0);
+    defer c.SDL_Quit();
 
-    var last_ticks = sdl.SDL_GetTicks();
+    const window = c.SDL_CreateWindow("chip8", // window title
+        c.SDL_WINDOWPOS_UNDEFINED, // initial x position
+        c.SDL_WINDOWPOS_UNDEFINED, // initial y position
+        display_width * display_scale, // width, in pixels
+        display_height * display_scale, // height, in pixels
+        c.SDL_WINDOW_SHOWN // flags
+    ).?;
+    defer c.SDL_DestroyWindow(window);
+
+    const renderer = c.SDL_CreateRenderer(window, -1, c.SDL_RENDERER_PRESENTVSYNC).?;
+    defer c.SDL_DestroyRenderer(renderer);
+
+    const framebuffer = c.SDL_CreateTexture(
+        renderer,
+        c.SDL_PIXELFORMAT_RGBA8888,
+        c.SDL_TEXTUREACCESS_STREAMING,
+        display_width,
+        display_height,
+    ).?;
+    defer c.SDL_DestroyTexture(framebuffer);
+
+    var last_ticks = c.SDL_GetTicks();
     var last_delta: u32 = 0;
     var step_delta: u32 = 0;
     var render_delta: u32 = 0;
 
     mainloop: while (true) {
-        var sdlEvent: sdl.SDL_Event = undefined;
-        while (sdl.SDL_PollEvent(&sdlEvent) != 0) {
-            switch (sdlEvent.type) {
-                sdl.SDL_QUIT => break :mainloop,
-                sdl.SDL_KEYDOWN, sdl.SDL_KEYUP => try input.handleKey(&cpu, sdlEvent.type, sdlEvent.key.keysym.sym),
+        var sdl_event: c.SDL_Event = undefined;
+        while (c.SDL_PollEvent(&sdl_event) != 0) {
+            switch (sdl_event.type) {
+                c.SDL_QUIT => break :mainloop,
+                c.SDL_KEYDOWN => handleKey(&cpu, 1, sdl_event.key.keysym.sym),
+                c.SDL_KEYUP => handleKey(&cpu, 0, sdl_event.key.keysym.sym),
                 else => {},
             }
         }
-        last_delta = sdl.SDL_GetTicks() - last_ticks;
-        last_ticks = sdl.SDL_GetTicks();
+        last_delta = c.SDL_GetTicks() - last_ticks;
+        last_ticks = c.SDL_GetTicks();
 
         step_delta += last_delta;
         render_delta += last_delta;
 
         while (step_delta >= 1) {
-            chip8.emulateCycle(&cpu);
+            cpu.cycle();
             step_delta -= 1;
         }
 
-        if (cpu.drawFlag) {
-            while (render_delta >= (1000 / 60)) {
-                _ = sdl.SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
-                _ = sdl.SDL_RenderClear(renderer);
-                for (0..SCREEN_HEIGHT) |y| {
-                    for (0..SCREEN_WIDTH) |x| {
-                        const addr = y * @as(usize, SCREEN_WIDTH) + x;
-                        if (cpu.gfx[addr] == 0) {
-                            continue;
-                        }
-                        _ = sdl.SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-                        const block = sdl.SDL_Rect{
-                            .x = @as(i32, @intCast(x)) * display_scale,
-                            .y = @as(i32, @intCast(y)) * display_scale,
-                            .h = display_scale,
-                            .w = display_scale,
-                        };
-                        _ = sdl.SDL_RenderDrawRect(renderer, &block);
-                        _ = sdl.SDL_RenderFillRect(renderer, &block);
+        if (cpu.draw_flag and render_delta >= (1000 / 60)) {
+            cpu.updateTimers();
+            var pixels: [display_width * display_height]u32 = undefined;
+
+            for (0..display_height) |y| {
+                for (0..display_width) |x| {
+                    const addr = y * @as(usize, display_width) + x;
+                    if (cpu.fb[addr] == 0) {
+                        pixels[addr] = 0x000000FF;
+                    } else {
+                        pixels[addr] = 0xFFFFFFFF;
                     }
                 }
-
-                sdl.SDL_RenderPresent(renderer);
-                cpu.drawFlag = false;
-                render_delta -= (1000 / 60);
             }
+
+            _ = c.SDL_UpdateTexture(
+                framebuffer,
+                null,
+                &pixels,
+                display_width * @sizeOf(u32),
+            );
+            _ = c.SDL_RenderClear(renderer);
+            _ = c.SDL_RenderCopy(renderer, framebuffer, null, null);
+            c.SDL_RenderPresent(renderer);
+
+            cpu.draw_flag = false;
+            render_delta = 0;
         }
     }
+}
+
+pub fn handleKey(cpu: *chip8.Cpu, key_value: u8, key: c.SDL_Keycode) void {
+    const keycode: u8 = switch (key) {
+        c.SDLK_1 => 0x1,
+        c.SDLK_2 => 0x2,
+        c.SDLK_3 => 0x3,
+        c.SDLK_4 => 0xC,
+        c.SDLK_q => 0x4,
+        c.SDLK_w => 0x5,
+        c.SDLK_e => 0x6,
+        c.SDLK_r => 0xD,
+        c.SDLK_a => 0x7,
+        c.SDLK_s => 0x8,
+        c.SDLK_d => 0x9,
+        c.SDLK_f => 0xE,
+        c.SDLK_z => 0xA,
+        c.SDLK_x => 0x0,
+        c.SDLK_c => 0xB,
+        c.SDLK_v => 0xF,
+        else => return,
+    };
+    cpu.key[keycode] = key_value;
 }
 
 // ensure all imported files have their tests run
